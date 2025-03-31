@@ -76,16 +76,66 @@ def get_random_message():
 
 
 # Function to send notifications
-async def send_notifications(application):
+async def send_notifications(bot):
     for user_id in active_users.keys():
         try:
-            await application.bot.send_message(
+            await bot.send_message(
                 chat_id=user_id,
                 text=get_random_message()
             )
             logger.info(f"Sent message to user {user_id}")
         except Exception as e:
             logger.error(f"Failed to send message to {user_id}: {str(e)}")
+
+
+class TelegramBot:
+    def __init__(self, token):
+        self.token = token
+        self.application = None
+        self.scheduler = None
+
+    async def schedule_next(self):
+        await send_notifications(self.application.bot)
+        # Schedule next run in 1-4 hours
+        next_interval = random.randint(3600, 14400)  # seconds
+        next_run = datetime.now() + timedelta(seconds=next_interval)
+        self.scheduler.add_job(
+            self.schedule_next,
+            'date',
+            run_date=next_run
+        )
+        logger.info(f"Next notification scheduled for {next_run}")
+
+    async def start_bot(self):
+        try:
+            # Initialize bot
+            self.application = Application.builder().token(self.token).build()
+
+            # Add command handlers
+            self.application.add_handler(CommandHandler("start", start))
+            self.application.add_handler(CommandHandler("stop", stop))
+
+            # Initialize scheduler
+            self.scheduler = AsyncIOScheduler()
+
+            # Schedule first notification
+            self.scheduler.add_job(
+                self.schedule_next,
+                'date',
+                run_date=datetime.now() + timedelta(seconds=10)
+            )
+
+            # Start the scheduler
+            self.scheduler.start()
+
+            # Start the bot
+            await self.application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+        except Exception as e:
+            logger.error(f"Error in start_bot: {str(e)}")
+            if self.scheduler and self.scheduler.running:
+                self.scheduler.shutdown()
+            raise
 
 
 async def main():
@@ -98,40 +148,23 @@ async def main():
     if not BOT_TOKEN:
         raise ValueError("No BOT_TOKEN provided in environment variables!")
 
-    # Initialize bot
-    application = Application.builder().token(BOT_TOKEN).build()
-
-    # Add command handlers
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CommandHandler("stop", stop))
-
-    # Initialize scheduler
-    scheduler = AsyncIOScheduler()
-
-    # Schedule the notification task
-    # This will run every 1-4 hours randomly
-    async def schedule_next():
-        await send_notifications(application)
-        # Schedule next run in 1-4 hours
-        next_interval = random.randint(3600, 14400)  # seconds
-        scheduler.add_job(
-            schedule_next,
-            'date',
-            run_date=datetime.now() + timedelta(seconds=next_interval)
-        )
-
-    # Add initial job
-    scheduler.add_job(schedule_next, 'date', run_date=datetime.now() + timedelta(seconds=10))
-
-    # Start the scheduler
-    scheduler.start()
-
-    # Start the bot
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Create and start bot
+    bot = TelegramBot(BOT_TOKEN)
+    await bot.start_bot()
 
 
 if __name__ == '__main__':
     try:
-        asyncio.run(main())
+        # Create new event loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        # Run the main function
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user")
     except Exception as e:
         logger.error(f"Bot crashed: {str(e)}")
+    finally:
+        # Clean up
+        loop.close()
