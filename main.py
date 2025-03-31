@@ -1,149 +1,171 @@
-import logging
-from telegram.ext import Application, CommandHandler, ContextTypes
-from telegram import Update
-import random
-import asyncio
-from datetime import datetime, timedelta
-import json
 import os
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from datetime import datetime
+import json
+import aiohttp
+from dotenv import load_dotenv
 
-# Configure logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
+# Load environment variables
+load_dotenv()
 
-logger = logging.getLogger(__name__)
-
-# Dictionary to store active users
-active_users = {}
-
-
-# Store users in a JSON file
-def save_users():
-    with open('users.json', 'w') as f:
-        json.dump(active_users, f)
+# Get your bot token from environment variables
+BOT_TOKEN = os.getenv('BOT_TOKEN')
 
 
-# Load users from JSON file
-def load_users():
-    try:
-        with open('users.json', 'r') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return {}
+# Store for managing active purchases and player data
+class GameStore:
+    def __init__(self):
+        self.pending_purchases = {}
+        self.player_data = {}
+
+    async def create_purchase(self, player_id: int, item_id: str, amount: int):
+        purchase_id = f"{player_id}_{datetime.now().timestamp()}"
+        self.pending_purchases[purchase_id] = {
+            "player_id": player_id,
+            "item_id": item_id,
+            "amount": amount,
+            "status": "pending"
+        }
+        return purchase_id
+
+    async def complete_purchase(self, purchase_id: str):
+        if purchase_id in self.pending_purchases:
+            purchase = self.pending_purchases[purchase_id]
+            purchase["status"] = "completed"
+            # Here you would typically update the player's inventory
+            await self.update_player_inventory(purchase["player_id"], purchase["item_id"], purchase["amount"])
+            return True
+        return False
+
+    async def update_player_inventory(self, player_id: int, item_id: str, amount: int):
+        if player_id not in self.player_data:
+            self.player_data[player_id] = {"inventory": {}}
+
+        if item_id not in self.player_data[player_id]["inventory"]:
+            self.player_data[player_id]["inventory"][item_id] = 0
+
+        self.player_data[player_id]["inventory"][item_id] += amount
 
 
-# Command handler for /start
+# Initialize the store
+game_store = GameStore()
+
+# Define available items
+GAME_ITEMS = {
+    "coins_100": {"name": "100 Coins", "price": 1},
+    "coins_500": {"name": "500 Coins", "price": 4},
+    "coins_1000": {"name": "1000 Coins", "price": 7},
+    "special_item": {"name": "Special Item", "price": 2},
+}
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    username = update.effective_user.username
-
-    active_users[user_id] = {
-        'username': username,
-        'joined_at': datetime.now().isoformat()
-    }
-    save_users()
-
+    """Send a message when the command /start is issued."""
     await update.message.reply_text(
-        "Welcome! You've been subscribed to random notifications. "
-        "Use /stop to unsubscribe."
+        "Welcome to the game store! Use /shop to see available items."
     )
 
 
-# Command handler for /stop
-async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
-    if user_id in active_users:
-        del active_users[user_id]
-        save_users()
-        await update.message.reply_text("You've been unsubscribed from notifications.")
-    else:
-        await update.message.reply_text("You weren't subscribed to notifications.")
+async def shop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Display available items for purchase."""
+    keyboard = []
+    for item_id, item_data in GAME_ITEMS.items():
+        keyboard.append([InlineKeyboardButton(
+            f"{item_data['name']} - {item_data['price']} Stars",
+            callback_data=f"buy_{item_id}"
+        )])
+
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Select an item to purchase:", reply_markup=reply_markup)
 
 
-# Function to generate random messages
-def get_random_message():
-    messages = [
-        "Hope you're having a great day! 🌟",
-        "Remember to stay hydrated! 💧",
-        "Time for a quick stretch! 🧘‍♂️",
-        "You're doing great! Keep it up! 👍",
-        "Here's your random reminder to smile! 😊"
-    ]
-    return random.choice(messages)
+async def handle_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle purchase button clicks."""
+    query = update.callback_query
+    await query.answer()
 
+    item_id = query.data.replace("buy_", "")
+    if item_id in GAME_ITEMS:
+        item = GAME_ITEMS[item_id]
+        player_id = query.from_user.id  # You can map this to your game's player ID
 
-async def send_notifications(app):
-    """Send notifications to all active users."""
-    for user_id in active_users.keys():
-        try:
-            await app.bot.send_message(
-                chat_id=user_id,
-                text=get_random_message()
-            )
-            logger.info(f"Sent message to user {user_id}")
-        except Exception as e:
-            logger.error(f"Failed to send message to {user_id}: {str(e)}")
+        # Create a pending purchase
+        purchase_id = await game_store.create_purchase(player_id, item_id, 1)
 
+        # Create payment invoice
+        keyboard = [[InlineKeyboardButton(
+            f"Pay {item['price']} Stars",
+            callback_data=f"confirm_{purchase_id}"
+        )]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-async def schedule_notifications(app, scheduler):
-    """Schedule the next notification."""
-    await send_notifications(app)
-    next_interval = random.randint(3600, 14400)  # 1-4 hours in seconds
-    next_time = datetime.now() + timedelta(seconds=next_interval)
-
-    scheduler.add_job(
-        schedule_notifications,
-        'date',
-        run_date=next_time,
-        args=[app, scheduler]
-    )
-    logger.info(f"Next notification scheduled for {next_time}")
-
-
-async def main():
-    try:
-        # Load existing users
-        global active_users
-        active_users = load_users()
-
-        # Get bot token
-        token = os.getenv("BOT_TOKEN")
-        if not token:
-            raise ValueError("No BOT_TOKEN provided in environment variables!")
-
-        # Initialize application
-        application = Application.builder().token(token).build()
-
-        # Add handlers
-        application.add_handler(CommandHandler("start", start))
-        application.add_handler(CommandHandler("stop", stop))
-
-        # Initialize scheduler
-        scheduler = AsyncIOScheduler()
-
-        # Schedule first notification (10 seconds after start)
-        scheduler.add_job(
-            schedule_notifications,
-            'date',
-            run_date=datetime.now() + timedelta(seconds=10),
-            args=[application, scheduler]
+        await query.edit_message_text(
+            f"Confirm purchase of {item['name']} for {item['price']} Stars?",
+            reply_markup=reply_markup
         )
 
-        # Start the scheduler
-        scheduler.start()
 
-        logger.info("Bot started successfully!")
+async def confirm_purchase(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle purchase confirmation."""
+    query = update.callback_query
+    await query.answer()
 
-        # Start polling
-        await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    purchase_id = query.data.replace("confirm_", "")
+    success = await game_store.complete_purchase(purchase_id)
 
-    except Exception as e:
-        logger.error(f"Error in main: {str(e)}")
-        raise
+    if success:
+        await query.edit_message_text(
+            "Purchase successful! Your items have been added to your inventory."
+        )
+
+        # Here you would typically notify your game server about the successful purchase
+        # This is where you'd integrate with your Unity game's backend
+        purchase_data = game_store.pending_purchases[purchase_id]
+        await notify_game_server(purchase_data)
+    else:
+        await query.edit_message_text(
+            "Purchase failed. Please try again later."
+        )
+
+
+async def notify_game_server(purchase_data: dict):
+    """Notify the game server about the successful purchase."""
+    # Replace with your game server's API endpoint
+    game_server_url = os.getenv('GAME_SERVER_URL')
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(
+                    f"{game_server_url}/purchase-complete",
+                    json={
+                        "player_id": purchase_data["player_id"],
+                        "item_id": purchase_data["item_id"],
+                        "amount": purchase_data["amount"],
+                        "timestamp": datetime.now().isoformat()
+                    }
+            ) as response:
+                if response.status == 200:
+                    print(f"Successfully notified game server about purchase {purchase_data}")
+                else:
+                    print(f"Failed to notify game server. Status: {response.status}")
+        except Exception as e:
+            print(f"Error notifying game server: {e}")
+
+
+def main():
+    """Start the bot."""
+    application = Application.builder().token(BOT_TOKEN).build()
+
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("shop", shop))
+    application.add_handler(CallbackQueryHandler(handle_purchase, pattern="^buy_"))
+    application.add_handler(CallbackQueryHandler(confirm_purchase, pattern="^confirm_"))
+
+    # Start the bot
+    application.run_polling()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
