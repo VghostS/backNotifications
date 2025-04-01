@@ -96,6 +96,7 @@ async def button_handler(update: Update, context: CallbackContext) -> None:
             title=item['name'],
             description=item['description'],
             payload=item_id,
+            provider_token="",  # Empty for digital goods
             currency="XTR",  # Telegram Stars currency code
             prices=[LabeledPrice(item['name'], int(item['price']))],
             start_parameter="start_parameter"
