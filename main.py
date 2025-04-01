@@ -51,6 +51,7 @@ async def oneflask_purchase(update: Update, context: CallbackContext) -> None:
         prices=[LabeledPrice('flask_one', 1)],
         start_parameter="start_parameter"
     )
+
 def main() -> None:
     """Start the bot."""
     try:
