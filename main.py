@@ -36,8 +36,7 @@ async def start(update: Update, context: CallbackContext) -> None:
     """Handle /start command to introduce the bot and offer game launch."""
     logger.info("Received /start command")
     await update.message.reply_text(
-        "Welcome to the game store! Use /shop to see available items.\n"
-        "Click the button below to play The Last Strip!",
+        "Earn coins, Upgrade your Character and Never Stop\n \nClick the button below to play The Last Strip!",
         reply_markup=InlineKeyboardMarkup([
             [InlineKeyboardButton(
                 "🎮 Launch The Last Strip",
