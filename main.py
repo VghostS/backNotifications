@@ -32,7 +32,6 @@ FLASK_ONE = {
     'secret': 'FLASKONE'
 }
 
-
 async def start(update: Update, context: CallbackContext) -> None:
     """Handle /start command to introduce the bot and offer game launch."""
     await update.message.reply_photo(
