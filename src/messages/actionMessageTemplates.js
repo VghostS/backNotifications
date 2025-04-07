@@ -1,7 +1,8 @@
 function getStartMessage(userName) 
 {
-    return `Good day, ${userName} 😎\n\nHere you can test the <b>Unigram Payment library</b>, ` +
-    `which allows you <b>to make payments via Telegram Stars</b>, inside web applications made on Unity!`;
+    return 'Hello, ' + userName + '\n' +
+    'Wish you a great Journey Ahead! \n \n' +
+    'Tap Launch to Launch TLS'
 }
 
 function getSuccessPurchaseMessage(

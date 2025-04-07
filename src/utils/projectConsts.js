@@ -1,5 +1,5 @@
 const BOT_USERNAME = 'UnigramPayment_bot';
-const UNITY_BUILD_HOST = 'https://vghosts.github.io/Gmae/';
+const UNITY_BUILD_HOST = 'https://vghosts.github.io/TLSGame/';
 
 const UNIGRAM_PAYMENT_REPO = 'https://github.com/MrVeit/Veittech-UnigramPayment/blob/master/README.md';
 const UNITON_CONNECT_REPO = 'https://github.com/MrVeit/Veittech-UnitonConnect';
